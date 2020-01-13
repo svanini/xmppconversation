@@ -9,40 +9,53 @@ import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.tcp.XMPPTCPConnection;
 import org.jivesoftware.smack.tcp.XMPPTCPConnectionConfiguration;
 import org.jxmpp.jid.EntityBareJid;
+import org.jxmpp.jid.EntityFullJid;
 import org.jxmpp.jid.impl.JidCreate;
 import org.jxmpp.stringprep.XmppStringprepException;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.Scanner;
 import java.util.UUID;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.PriorityBlockingQueue;
 
 public class Main {
-    private static String DH_KEY = "1267";
+    private final static String DH_KEY = "1267";
     private static String idUser = UUID.randomUUID().toString();
     private static AbstractXMPPConnection senderXmppConnection;
     private static AbstractXMPPConnection receiverXmppConnection;
     private static ChatManager senderCm;
     private static ChatManager receiverCm;
     private static AES aes = new AES();
+    static LinkedBlockingQueue<AbstractXMPPConnection> sendersXmppConnectionQueue = new LinkedBlockingQueue<AbstractXMPPConnection>(Constants.USERS_TO_CREATE);
+    static LinkedBlockingQueue<AbstractXMPPConnection> receiversXmppConnectionQueue = new LinkedBlockingQueue<AbstractXMPPConnection>(Constants.USERS_TO_CREATE);
 
-    static public AbstractXMPPConnection connect(String username, String password, String host) throws IOException, InterruptedException, XMPPException, SmackException {
+
+    static public void connect(ArrayList<XmppUser> xmppUsers) throws IOException, InterruptedException, XMPPException, SmackException {
         XMPPTCPConnectionConfiguration.Builder configBuilder = XMPPTCPConnectionConfiguration.builder();
-        configBuilder.setUsernameAndPassword(username, password);
-        configBuilder.setHost(host);
-        configBuilder.setXmppDomain(host);
-        AbstractXMPPConnection connection = new XMPPTCPConnection(configBuilder.build());
-        // Connect to the server and login
-        connection.connect().login();
-        connection.setReplyTimeout(300000);
 
-        return connection;
+        for (XmppUser user : xmppUsers) {
+            configBuilder.setUsernameAndPassword(user.getName(), user.getPassword());
+            configBuilder.setHost(user.getHost());
+            configBuilder.setXmppDomain(user.getHost());
+            AbstractXMPPConnection connection = new XMPPTCPConnection(configBuilder.build());
+            // Connect to the server and login
+            connection.connect().login();
+            connection.setReplyTimeout(300000);
+            if (user.getType().equals(UserType.SENDER)) {
+                sendersXmppConnectionQueue.add(connection);
+            } else {
+                receiversXmppConnectionQueue.add(connection);
+            }
+        }
     }
 
-    private static void xmppLogin(String server, String username, String password) throws Exception {
+    /*private static void xmppLogin(String server, String username, String password) throws Exception {
         senderXmppConnection = connect(username, password, server);
         senderCm = ChatManager.getInstanceFor(senderXmppConnection);
-    }
+    }*/
 
     /*public static void sendMessage(Message message, String username, String host, ChatManager chatManager) throws SmackException.NotConnectedException, InterruptedException, XmppStringprepException {
         EntityBareJid jid = JidCreate.entityBareFrom(username + "@" + host);
@@ -80,13 +93,15 @@ public class Main {
     public static void main(final String[] args) {
         String server = "DTI-ISIN-052";
         XmppUserGenerator xmppUserGenerator = new XmppUserGenerator(server);
-        XmppUser xmppSender = xmppUserGenerator.createAccount(UserType.SENDER);
+        ArrayList<XmppUser> sendXmppUsers = new ArrayList<>(Constants.USERS_TO_CREATE);
+        xmppUserGenerator.createAccount(UserType.SENDER, sendXmppUsers);
         /*XmppUser xmppSender = new XmppUser();
         xmppSender.setName("FV7DG4cuEV ");
         xmppSender.setPassword("UrjJgP1cf5 ");
         xmppSender.setType(UserType.SENDER);
         xmppSender.setHost(server);*/
-        XmppUser xmppReceiver = xmppUserGenerator.createAccount(UserType.RECEIVER);
+        ArrayList<XmppUser> recXmppUsers = new ArrayList<>(Constants.USERS_TO_CREATE);
+        XmppUser xmppReceiver = xmppUserGenerator.createAccount(UserType.RECEIVER, recXmppUsers);
         /*XmppUser xmppReceiver = new XmppUser();
         xmppReceiver.setName("acq1ApUfSE ");
         xmppReceiver.setPassword("1JK(5h>uE<");
@@ -94,14 +109,32 @@ public class Main {
         xmppReceiver.setHost(server);*/
 
         try {
-            senderXmppConnection = connect(xmppSender.getName(), xmppSender.getPassword(), server);
+            connect(sendXmppUsers);
+            connect(recXmppUsers);
+            while (true) {
+                AbstractXMPPConnection connection = sendersXmppConnectionQueue.poll();
+                if (connection == null) break;
+                EntityFullJid jid = connection.getUser();
+                System.out.println(jid.toString());
+                connection.disconnect();
+            }
+
+            while (true) {
+                AbstractXMPPConnection connection = receiversXmppConnectionQueue.poll();
+                if (connection == null) break;
+                EntityFullJid jid = connection.getUser();
+                System.out.println(jid.toString());
+                connection.disconnect();
+            }
+
+            /*
             senderCm = ChatManager.getInstanceFor(senderXmppConnection);
             System.out.println("Sender chat initialised");
             receiverXmppConnection = connect(xmppReceiver.getName(), xmppReceiver.getPassword(), server);
             receiverCm = ChatManager.getInstanceFor(receiverXmppConnection);
             addListeners();
 
-            /* sender sends a message to receiver **/
+            // sender sends a message to receiver
             String recJid = xmppReceiver.getName() + "@" + xmppReceiver.getHost();
             EntityBareJid recEBJid = JidCreate.entityBareFrom(recJid);
             Message sendMessage = new Message();
@@ -111,7 +144,7 @@ public class Main {
             sendChat.send(sendMessage);
             System.out.println("Message sent to " + xmppReceiver.getName());
 
-            /* receiver sends a message to sender **/
+            // receiver sends a message to sender
             String sendJid = xmppSender.getName() + "@" + xmppSender.getHost();
             EntityBareJid sendEBJid = JidCreate.entityBareFrom(sendJid);
             Message recMessage = new Message();
@@ -120,6 +153,7 @@ public class Main {
             Chat recChat = receiverCm.chatWith(sendEBJid);
             recChat.send(recMessage);
             System.out.println("Message sent to " + xmppSender.getName());
+            */
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -129,8 +163,6 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
         scanner.nextLine();
         //remember to disconnect when done
-        senderXmppConnection.disconnect();
-        receiverXmppConnection.disconnect();
     }
 
     private static UserGeneratorCallback userGeneratorCallback = new UserGeneratorCallback() {
