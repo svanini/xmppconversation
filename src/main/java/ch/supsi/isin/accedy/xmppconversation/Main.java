@@ -104,13 +104,46 @@ public class Main {
             System.out.println("Received command: " + command);
             String idx = cmdList[1];
             String url = "http://127.0.0.1:8080/json.htm?type=command&param=switchlight&idx=" + idx + "&switchcmd=" + command;
-            manageHttpRequest(url);
+            new Thread(() -> {
+                HttpURLConnection connection = null;
+                try {
+                    URL myURL = new URL(url);
+                    connection = (HttpURLConnection)myURL.openConnection();
+                    int responseCode = connection.getResponseCode();
+                    if (responseCode != HttpURLConnection.HTTP_OK) {
+                        System.out.println("Unable to execute command");
+                    } else {
+                        Reader reader = new InputStreamReader(connection.getInputStream());
+                        Type domoticzType = new TypeToken<DomoticzOutcome>() {}.getType();
+                        Gson gson = new Gson();
+                        DomoticzOutcome outcome = gson.fromJson(reader, domoticzType);
+                        if (outcome.status.equals("Ok")) {
+                            System.out.println("Command " + outcome.title + " successfully executed");
+                        } else {
+                            System.out.println("Command " + outcome.title + " failed");
+                        }
+                    }
+                    //Json returned is in the form: {
+                    //   "status" : "OK",
+                    //   "title" : "SwitchLight"
+                    //}
+                } catch (MalformedURLException e) {
+                    e.printStackTrace();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    if (connection != null) {
+                        connection.disconnect();
+                    }
+                }
+            }).start();
         } else {
             System.out.println("Unknown command received: " + command);
         }
     }
 
-    private static void manageHttpRequest(String url) {
+    /*private static void manageHttpRequest(String url) {
+        //TODO: implement in a thread
         HttpURLConnection connection = null;
         try {
             URL myURL = new URL(url);
@@ -142,7 +175,7 @@ public class Main {
                 connection.disconnect();
             }
         }
-    }
+    }*/
 
     public static void main(final String[] args) {
         String server = "DTI-ISIN-052";
