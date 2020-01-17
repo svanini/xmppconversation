@@ -1,5 +1,7 @@
 package ch.supsi.isin.accedy.xmppconversation;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.jivesoftware.smack.AbstractXMPPConnection;
 import org.jivesoftware.smack.SmackException;
 import org.jivesoftware.smack.XMPPException;
@@ -14,15 +16,22 @@ import org.jxmpp.jid.impl.JidCreate;
 import org.jxmpp.stringprep.XmppStringprepException;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Scanner;
-import java.util.UUID;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.lang.reflect.Type;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
 
 public class Main {
     private final static String DH_KEY = "1267";
+    private final static String CMD_ON = "On";
+    private final static String CMD_OFF = "Off";
+    private final static ArrayList<String> CMD_LIST = new ArrayList<>(Arrays.asList(CMD_ON, CMD_OFF));
     private static String idUser = UUID.randomUUID().toString();
     private static AbstractXMPPConnection senderXmppConnection;
     private static AbstractXMPPConnection receiverXmppConnection;
@@ -31,6 +40,8 @@ public class Main {
     private static AES aes = new AES();
     static LinkedBlockingQueue<AbstractXMPPConnection> sendersXmppConnectionQueue = new LinkedBlockingQueue<AbstractXMPPConnection>(Constants.USERS_TO_CREATE);
     static LinkedBlockingQueue<AbstractXMPPConnection> receiversXmppConnectionQueue = new LinkedBlockingQueue<AbstractXMPPConnection>(Constants.USERS_TO_CREATE);
+
+    //address http://172.16.20.187:8080/json.htm?type=command&param=switchlight&idx=99&switchcmd=Off
 
 
     static public void connect(ArrayList<XmppUser> xmppUsers) throws IOException, InterruptedException, XMPPException, SmackException {
@@ -65,13 +76,12 @@ public class Main {
 
     public static void addListeners() {
         senderCm.addIncomingListener((entityBareJid, message, chat) -> {
-            processMessage(message);
             String decryptedMsg = aes.decrypt(message.getBody(), DH_KEY);
             System.out.println("New message from " + entityBareJid + ": " + decryptedMsg);
+            processMessage(decryptedMsg);
         });
 
         receiverCm.addIncomingListener((entityBareJid, message, chat) -> {
-            processMessage(message);
             String decryptedMsg = aes.decrypt(message.getBody(), DH_KEY);
             System.out.println("New message from " + entityBareJid + ": " + decryptedMsg);
         });
@@ -86,8 +96,52 @@ public class Main {
         chat.send(message);
     }
 
-    private static void processMessage(Message message) {
+    private static void processMessage(String msg) {
+        //msg is in the form switchcmd(On, Off):IDX
+        String[] cmdList = msg.split(":");
+        String command = cmdList[0];
+        if (CMD_LIST.contains(command)) {
+            System.out.println("Received command: " + command);
+            String idx = cmdList[1];
+            String url = "http://127.0.0.1:8080/json.htm?type=command&param=switchlight&idx=" + idx + "&switchcmd=" + command;
+            manageHttpRequest(url);
+        } else {
+            System.out.println("Unknown command received: " + command);
+        }
+    }
 
+    private static void manageHttpRequest(String url) {
+        HttpURLConnection connection = null;
+        try {
+            URL myURL = new URL(url);
+            connection = (HttpURLConnection)myURL.openConnection();
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                System.out.println("Unable to execute command");
+            } else {
+                Reader reader = new InputStreamReader(connection.getInputStream());
+                Type domoticzType = new TypeToken<DomoticzOutcome>() {}.getType();
+                Gson gson = new Gson();
+                DomoticzOutcome outcome = gson.fromJson(reader, domoticzType);
+                if (outcome.status.equals("Ok")) {
+                    System.out.println("Command " + outcome.title + " successfully executed");
+                } else {
+                    System.out.println("Command " + outcome.title + " failed");
+                }
+            }
+            //Json returned is in the form: {
+            //   "status" : "OK",
+            //   "title" : "SwitchLight"
+            //}
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 
     public static void main(final String[] args) {
