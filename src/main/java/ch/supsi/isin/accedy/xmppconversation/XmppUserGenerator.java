@@ -16,7 +16,7 @@ public class XmppUserGenerator {
     private String host;
     private KeyGenerator keyGenerator;
 
-    public XmppUser createAccount(UserType userType, ArrayList<XmppUser> xmppUsers) {
+    public XmppUser createAccount(UserType userType) {
         XmppUser xmppUser = null;
         try {
             XMPPTCPConnectionConfiguration config = XMPPTCPConnectionConfiguration.builder()
@@ -27,36 +27,31 @@ public class XmppUserGenerator {
             AbstractXMPPConnection connection = new XMPPTCPConnection(config);
             connection.connect();
 
-            int createdUsersNumber = 0;
-            while (createdUsersNumber < Constants.USERS_TO_CREATE) {
-                xmppUser = createRandomUser();
-                // Registering the xmppUser
-                try {
-                    Localpart lp = Localpart.from(xmppUser.getName());
-                    AccountManager accountManager = AccountManager.getInstance(connection);
-                    accountManager.sensitiveOperationOverInsecureConnection(true); //TODO check if this must be done only for localhost ???
-                    if (accountManager.supportsAccountCreation()) {
-                        accountManager.createAccount(lp, xmppUser.getPassword());
-                        System.out.println("User " + xmppUser.getName() + " password " + xmppUser.getPassword() + " created");
-                        xmppUser.setKey(keyGenerator.getKey());
-                        xmppUser.setType(userType);
-                        xmppUsers.add(xmppUser);
-                        createdUsersNumber++;
-                    }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                } catch (XMPPException.XMPPErrorException e) {
-                    e.printStackTrace();
-                } catch (XmppStringprepException e) {
-                    e.printStackTrace();
-                } catch (SmackException.NotConnectedException e) {
-                    e.printStackTrace();
-                    if (connection != null) {
-                        connection.connect();
-                    }
-                } catch (SmackException.NoResponseException e) {
-                    e.printStackTrace();
+            xmppUser = createRandomUser();
+            // Registering the xmppUser
+            try {
+                Localpart lp = Localpart.from(xmppUser.getName());
+                AccountManager accountManager = AccountManager.getInstance(connection);
+                accountManager.sensitiveOperationOverInsecureConnection(true); //TODO check if this must be done only for localhost ???
+                if (accountManager.supportsAccountCreation()) {
+                    accountManager.createAccount(lp, xmppUser.getPassword());
+                    System.out.println("User " + xmppUser.getName() + " password " + xmppUser.getPassword() + " created");
+                    xmppUser.setKey(keyGenerator.getKey());
+                    xmppUser.setType(userType);
                 }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } catch (XMPPException.XMPPErrorException e) {
+                e.printStackTrace();
+            } catch (XmppStringprepException e) {
+                e.printStackTrace();
+            } catch (SmackException.NotConnectedException e) {
+                e.printStackTrace();
+                if (connection != null) {
+                    connection.connect();
+                }
+            } catch (SmackException.NoResponseException e) {
+                e.printStackTrace();
             }
             connection.disconnect();
         } catch (Exception e) {

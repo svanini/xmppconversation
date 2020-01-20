@@ -41,7 +41,7 @@ public class Constants {
     static public final int XMPP_USER_LENGTH = 10;
     static public final int XMPP_PASSWORD_LENGTH = 10;
     static public final int XMPP_KEY_LENGTH = 15;
-    static public final int USERS_TO_CREATE = 5; //of one type (SENDER | RECEIVER)
+    static public final int USERS_TO_CREATE = 1; //of one type (SENDER | RECEIVER)
     static public final int MAX_CREATION_ATTEMPTS_NUMBER = 3;
     public static final String AB = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     public static final String AB_NOTTRIVIAL_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+?!(){}.,;:/&-=%<>abcdefghijklmnopqrstuvwxyz";

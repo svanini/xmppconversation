@@ -31,6 +31,7 @@ public class Main {
     private final static String DH_KEY = "1267";
     private final static String CMD_ON = "On";
     private final static String CMD_OFF = "Off";
+    private final static String DOMOTICZ_HOST_ADDRESS = "172.16.20.187";
     private final static ArrayList<String> CMD_LIST = new ArrayList<>(Arrays.asList(CMD_ON, CMD_OFF));
     private static String idUser = UUID.randomUUID().toString();
     private static AbstractXMPPConnection senderXmppConnection;
@@ -63,6 +64,19 @@ public class Main {
         }
     }
 
+    static public AbstractXMPPConnection connect(XmppUser user) throws IOException, InterruptedException, XMPPException, SmackException {
+        XMPPTCPConnectionConfiguration.Builder configBuilder = XMPPTCPConnectionConfiguration.builder();
+        configBuilder.setUsernameAndPassword(user.getName(), user.getPassword());
+        configBuilder.setHost(user.getHost());
+        configBuilder.setXmppDomain(user.getHost());
+        AbstractXMPPConnection connection = new XMPPTCPConnection(configBuilder.build());
+        // Connect to the server and login
+        connection.connect().login();
+        connection.setReplyTimeout(300000);
+
+        return connection;
+    }
+
     /*private static void xmppLogin(String server, String username, String password) throws Exception {
         senderXmppConnection = connect(username, password, server);
         senderCm = ChatManager.getInstanceFor(senderXmppConnection);
@@ -78,32 +92,34 @@ public class Main {
         senderCm.addIncomingListener((entityBareJid, message, chat) -> {
             String decryptedMsg = aes.decrypt(message.getBody(), DH_KEY);
             System.out.println("New message from " + entityBareJid + ": " + decryptedMsg);
-            processMessage(decryptedMsg);
         });
 
         receiverCm.addIncomingListener((entityBareJid, message, chat) -> {
             String decryptedMsg = aes.decrypt(message.getBody(), DH_KEY);
             System.out.println("New message from " + entityBareJid + ": " + decryptedMsg);
+            processMessage(decryptedMsg);
         });
     }
 
-    public static void sendMessage(String destJid) throws XmppStringprepException, SmackException.NotConnectedException, InterruptedException {
+    //TODO: aggiungere un AbstractXMPPConnection tra i parametri della funzione
+    public static void sendMessage(String destJid, String msg) throws XmppStringprepException, SmackException.NotConnectedException, InterruptedException {
         EntityBareJid jid = JidCreate.entityBareFrom(destJid);
         Message message = new Message();
-        message.setSubject("Message subject");
-        message.setBody("Message body");
+        String encryptedMsg = aes.encrypt(msg, DH_KEY);
+        message.setBody(encryptedMsg);
         Chat chat = senderCm.chatWith(jid);
         chat.send(message);
+        System.out.println("Message " + msg + " sent to " + destJid);
     }
 
     private static void processMessage(String msg) {
-        //msg is in the form switchcmd(On, Off):IDX
+        //msg is in the form switchcmd(On, Off):IDX es: On:99
         String[] cmdList = msg.split(":");
         String command = cmdList[0];
         if (CMD_LIST.contains(command)) {
             System.out.println("Received command: " + command);
             String idx = cmdList[1];
-            String url = "http://127.0.0.1:8080/json.htm?type=command&param=switchlight&idx=" + idx + "&switchcmd=" + command;
+            String url = "http://" + DOMOTICZ_HOST_ADDRESS + ":8080/json.htm?type=command&param=switchlight&idx=" + idx + "&switchcmd=" + command;
             new Thread(() -> {
                 HttpURLConnection connection = null;
                 try {
@@ -117,7 +133,7 @@ public class Main {
                         Type domoticzType = new TypeToken<DomoticzOutcome>() {}.getType();
                         Gson gson = new Gson();
                         DomoticzOutcome outcome = gson.fromJson(reader, domoticzType);
-                        if (outcome.status.equals("Ok")) {
+                        if (outcome.status.equals("OK")) {
                             System.out.println("Command " + outcome.title + " successfully executed");
                         } else {
                             System.out.println("Command " + outcome.title + " failed");
@@ -180,13 +196,33 @@ public class Main {
     public static void main(final String[] args) {
         String server = "DTI-ISIN-052";
         XmppUserGenerator xmppUserGenerator = new XmppUserGenerator(server);
-        ArrayList<XmppUser> sendXmppUsers = new ArrayList<>(Constants.USERS_TO_CREATE);
+        XmppUser xmppSender = xmppUserGenerator.createAccount(UserType.SENDER);
+        XmppUser xmppReceiver = xmppUserGenerator.createAccount(UserType.RECEIVER);
+        try {
+            senderXmppConnection = connect(xmppSender);
+            receiverXmppConnection = connect(xmppReceiver);
+            senderCm = ChatManager.getInstanceFor(senderXmppConnection);
+            receiverCm = ChatManager.getInstanceFor(receiverXmppConnection);
+            addListeners();
+
+            // sender sends a message to receiver
+            String recJid = xmppReceiver.getName() + "@" + xmppReceiver.getHost();
+            String msg = "On:99";
+            sendMessage(recJid, msg);
+
+            Thread.sleep(3000);
+            msg = "Off:99";
+            sendMessage(recJid, msg);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        /*ArrayList<XmppUser> sendXmppUsers = new ArrayList<>(Constants.USERS_TO_CREATE);
         xmppUserGenerator.createAccount(UserType.SENDER, sendXmppUsers);
-        /*XmppUser xmppSender = new XmppUser();
+        XmppUser xmppSender = new XmppUser();
         xmppSender.setName("FV7DG4cuEV ");
         xmppSender.setPassword("UrjJgP1cf5 ");
         xmppSender.setType(UserType.SENDER);
-        xmppSender.setHost(server);*/
+        xmppSender.setHost(server);
         ArrayList<XmppUser> recXmppUsers = new ArrayList<>(Constants.USERS_TO_CREATE);
         XmppUser xmppReceiver = xmppUserGenerator.createAccount(UserType.RECEIVER, recXmppUsers);
         /*XmppUser xmppReceiver = new XmppUser();
@@ -195,7 +231,7 @@ public class Main {
         xmppReceiver.setType(UserType.RECEIVER);
         xmppReceiver.setHost(server);*/
 
-        try {
+        /*try {
             connect(sendXmppUsers);
             connect(recXmppUsers);
             while (true) {
@@ -240,16 +276,18 @@ public class Main {
             Chat recChat = receiverCm.chatWith(sendEBJid);
             recChat.send(recMessage);
             System.out.println("Message sent to " + xmppSender.getName());
-            */
+
 
         } catch (Exception e) {
             e.printStackTrace();
-        }
+        }*/
 
         System.out.println("press \"ENTER\" to continue...");
         Scanner scanner = new Scanner(System.in);
         scanner.nextLine();
         //remember to disconnect when done
+        senderXmppConnection.disconnect();
+        receiverXmppConnection.disconnect();
     }
 
     private static UserGeneratorCallback userGeneratorCallback = new UserGeneratorCallback() {
